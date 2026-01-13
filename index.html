@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Global Trust Bank | Secure Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load sql.js for real SQL execution -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/sql-wasm.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
         
         :root {
             --bank-blue: #0a2540;
             --bank-gold: #c39d63;
-            --error-red: #df1b41;
-            --success-green: #2ecc71;
         }
 
         body {
@@ -23,7 +23,7 @@
             overflow-x: hidden;
         }
 
-        .login-card, .dashboard-card {
+        .login-card, .dashboard-card, .store-card {
             background: white;
             box-shadow: 0 50px 100px -20px rgba(50, 50, 93, 0.25), 0 30px 60px -30px rgba(0, 0, 0, 0.3);
             border-radius: 8px;
@@ -42,26 +42,6 @@
             box-shadow: 0 0 0 2px rgba(195, 157, 99, 0.2);
         }
 
-        .hack-overlay {
-            font-family: 'JetBrains Mono', monospace;
-            background: rgba(10, 37, 64, 0.98);
-            color: #00ff41;
-            display: none;
-        }
-
-        .glitch-text {
-            animation: glitch 1s infinite;
-        }
-
-        @keyframes glitch {
-            0% { transform: translate(0); }
-            20% { transform: translate(-2px, 2px); }
-            40% { transform: translate(-2px, -2px); }
-            60% { transform: translate(2px, 2px); }
-            80% { transform: translate(2px, -2px); }
-            100% { transform: translate(0); }
-        }
-
         .hidden-view {
             display: none !important;
         }
@@ -70,28 +50,69 @@
             border-left: 4px solid var(--bank-gold);
             background: #fdfdfd;
         }
+
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--bank-blue);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .nav-link {
+            @apply px-4 py-2 rounded transition-colors text-sm font-medium cursor-pointer;
+        }
+        .nav-link.active {
+            @apply bg-white/10 text-white;
+        }
+        .nav-link:not(.active) {
+            @apply text-gray-400 hover:text-white;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
 
     <!-- Bank Header -->
     <header class="w-full bg-[#0a2540] text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-40">
-        <div class="flex items-center gap-2">
-            <div class="w-8 h-8 bg-[#c39d63] rounded-full flex items-center justify-center">
-                <span class="font-bold text-[#0a2540]">GT</span>
+        <div class="flex items-center gap-6">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-[#c39d63] rounded-full flex items-center justify-center">
+                    <span class="font-bold text-[#0a2540]">GT</span>
+                </div>
+                <span class="font-semibold tracking-tight text-lg">GLOBAL TRUST BANK</span>
             </div>
-            <span class="font-semibold tracking-tight text-lg">GLOBAL TRUST BANK</span>
+            
+            <!-- Navigation Tabs (Only visible when logged in) -->
+            <nav id="main-nav" class="hidden flex gap-2">
+                <div onclick="showView('dashboard')" id="nav-dashboard" class="nav-link active">DASHBOARD</div>
+                <div onclick="showView('store')" id="nav-store" class="nav-link">PREMIUM STORE</div>
+            </nav>
         </div>
-        <div id="user-display" class="hidden text-sm flex items-center gap-4">
-            <span class="text-gray-400">Welcome, <strong class="text-white">SYSTEM_ADMIN</strong></span>
-            <button onclick="logout()" class="text-xs bg-red-900/50 hover:bg-red-800 px-2 py-1 rounded">LOGOUT</button>
+
+        <div id="user-display" class="hidden text-sm flex items-center gap-6">
+            <div class="text-right">
+                <span class="text-gray-400 block text-[10px] font-bold uppercase">Available Funds</span>
+                <span id="header-balance" class="text-[#c39d63] font-mono font-bold">$42,901,440.00</span>
+            </div>
+            <div class="h-8 w-px bg-white/10"></div>
+            <span class="text-gray-400">User: <strong id="logged-in-user" class="text-white">SYSTEM_ADMIN</strong></span>
+            <button onclick="logout()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition-colors">LOGOUT</button>
         </div>
         <div id="version-display" class="text-xs uppercase tracking-widest text-gray-400 font-bold">
             Portal v8.4.2
         </div>
     </header>
 
-    <main class="flex-1 flex items-center justify-center p-6 relative">
+    <main class="flex-1 flex items-center justify-center p-6">
         
         <!-- View 1: Login UI -->
         <div id="login-view" class="login-card w-full max-w-md p-8">
@@ -103,20 +124,23 @@
             <div class="space-y-4">
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Account ID</label>
-                    <input type="text" id="username" class="input-field w-full p-3 rounded" placeholder="Admin username">
+                    <input type="text" id="username" class="input-field w-full p-3 rounded" placeholder="Enter Account ID">
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-400 uppercase mb-1">Access PIN</label>
                     <input type="password" id="password" class="input-field w-full p-3 rounded" placeholder="••••••••">
                 </div>
-                <button id="login-btn" class="w-full bg-[#0a2540] text-white font-bold py-3 rounded hover:bg-[#1a3a5a] transition-all mt-2 active:scale-95">
-                    AUTHORIZE ACCESS
+                <button id="login-btn" class="w-full bg-[#0a2540] text-white font-bold py-3 rounded hover:bg-[#1a3a5a] transition-all mt-2 active:scale-95 disabled:opacity-50">
+                    <span id="btn-text">AUTHORIZE ACCESS</span>
                 </button>
             </div>
 
             <div class="mt-6 pt-6 border-t border-gray-100 flex justify-between text-xs text-gray-400">
                 <a href="#" class="hover:underline">Encrypted Recovery</a>
                 <a href="#" class="hover:underline">Security Protocols</a>
+            </div>
+            <div id="error-msg" class="mt-4 text-center text-red-500 text-sm hidden">
+                Invalid credentials or system timeout.
             </div>
         </div>
 
@@ -129,14 +153,14 @@
                 </div>
                 <div class="text-right">
                     <span class="text-xs font-bold text-gray-400 block">LAST LOGIN</span>
-                    <span class="text-sm font-mono text-gray-700">2026-01-12 21:09:44</span>
+                    <span id="current-time" class="text-sm font-mono text-gray-700"></span>
                 </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div class="stat-card p-4 rounded shadow-sm">
                     <span class="text-xs text-gray-400 font-bold uppercase">Liquid Assets</span>
-                    <p class="text-2xl font-bold text-gray-800">$42,901,440.00</p>
+                    <p id="stat-liquid-assets" class="text-2xl font-bold text-gray-800">$42,901,440.00</p>
                 </div>
                 <div class="stat-card p-4 rounded shadow-sm">
                     <span class="text-xs text-gray-400 font-bold uppercase">Active Vaults</span>
@@ -151,153 +175,199 @@
             <div>
                 <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>
-                    Recent High-Value Transfers
+                    Internal Audit: Restricted Database View
                 </h3>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm">
                         <thead class="bg-gray-50 text-gray-400 font-bold uppercase text-[10px]">
                             <tr>
+                                <th class="p-3">UID</th>
+                                <th class="p-3">Label</th>
                                 <th class="p-3">Reference</th>
-                                <th class="p-3">Counterparty</th>
-                                <th class="p-3">Amount</th>
-                                <th class="p-3">Status</th>
+                                <th class="p-3">Access Hash</th>
                             </tr>
                         </thead>
                         <tbody id="vault-table-body" class="divide-y divide-gray-100">
-                            <!-- Injected via JS -->
+                            <!-- Injected via SQL Result -->
                         </tbody>
                     </table>
                 </div>
             </div>
         </div>
 
-        <!-- Hacker Intercept Terminal -->
-        <div id="hacker-terminal" class="absolute inset-0 z-50 hack-overlay p-8 overflow-y-auto">
-            <div class="max-w-4xl mx-auto">
-                <div class="flex justify-between items-center border-b border-[#00ff41] pb-2 mb-4">
-                    <span class="glitch-text font-bold">SESSION_HIJACK_ACTIVE</span>
-                    <button id="close-hack" class="text-xs border border-[#00ff41] px-2 py-1 hover:bg-[#00ff41] hover:text-black">MINIMIZE</button>
-                </div>
-                <div id="terminal-log" class="text-sm font-mono leading-relaxed">
-                    <p class="mb-2">>>> Protocol: SQL_INJECTION_SNIFFER v2.1</p>
-                    <p class="mb-2">>>> Waiting for packet capture...</p>
-                </div>
+        <!-- View 3: Premium Store -->
+        <div id="store-view" class="store-card w-full max-w-5xl p-8 hidden-view">
+            <div class="mb-8 border-b pb-6">
+                <h2 class="text-3xl font-bold text-gray-800">Exclusive Luxury Marketplace</h2>
+                <p class="text-gray-500">Acquire elite assets using authorized account liquidities.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="store-items">
+                <!-- Items injected via JS -->
             </div>
         </div>
     </main>
 
-    <!-- Hacking Toolbar -->
-    <footer class="bg-gray-900 text-white p-3 flex flex-wrap justify-center gap-4 md:gap-8 text-[10px] md:text-xs font-mono border-t border-gray-700">
-        <span class="text-green-500 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> SQL_INJECTOR_READY</span>
-        <button onclick="toggleTerminal()" class="hover:text-yellow-400 underline decoration-yellow-400">SHOW INTERCEPT CONSOLE</button>
-        <span class="text-gray-500">PAYLOAD HINT: ' OR '1'='1</span>
-        <span class="text-gray-500">GOAL: Login & Dump Vault_Records</span>
+    <footer class="p-6 text-center text-gray-400 text-[10px] uppercase tracking-widest">
+        &copy; 2026 Global Trust Financial Group. All Rights Reserved.
     </footer>
 
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-10 right-10 transform translate-y-20 opacity-0 bg-gray-900 text-white px-6 py-3 rounded shadow-2xl transition-all duration-300 flex items-center gap-3 z-50">
+        <div id="toast-icon" class="w-2 h-2 rounded-full bg-green-500"></div>
+        <span id="toast-msg">Purchase Successful</span>
+    </div>
+
     <script>
-        const db = {
-            users: [
-                { id: 1, user: 'admin', pass: 'BankMaster2024!', type: 'SUPER' },
-            ],
-            Vault_Records: [
-                { id: 'TXN_4492', client: 'John Doe', balance: '$1,204,500', secret: 'FLAG{B4NK_S3CUR1TY_BYPASS}' },
-                { id: 'TXN_8810', client: 'Swiss Trust', balance: '$12,000,000', secret: 'HIDDEN_PORT_5512' },
-                { id: 'TXN_1102', client: 'Ghost Account', balance: '$5,400,000', secret: 'PRIVATE_KEY_339' },
-                { id: 'TXN_9921', client: 'C. Vacker', balance: '$850,220', secret: 'REDACTED_REF_00' }
-            ]
+        let db;
+        let currentBalance = 42901440.00;
+        
+        const views = {
+            login: document.getElementById('login-view'),
+            dashboard: document.getElementById('dashboard-view'),
+            store: document.getElementById('store-view')
         };
+        
+        const storeItems = [
+            { id: 1, name: "Private Island (Maldives)", price: 15000000, img: "🏝️" },
+            { id: 2, name: "Gulfstream G700 Jet", price: 75000000, img: "✈️" },
+            { id: 3, name: "Superyacht 'The Kraken'", price: 250000000, img: "🛥️" },
+            { id: 4, name: "Penthouse (Manhattan)", price: 45000000, img: "🏙️" },
+            { id: 5, name: "10,000 BTC Voucher", price: 650000000, img: "🪙" },
+            { id: 6, name: "Luxury Watch Collection", price: 2500000, img: "⌚" }
+        ];
 
-        const log = document.getElementById('terminal-log');
-        const loginBtn = document.getElementById('login-btn');
-        const hackUI = document.getElementById('hacker-terminal');
-        const loginView = document.getElementById('login-view');
-        const dashboardView = document.getElementById('dashboard-view');
-        const userDisplay = document.getElementById('user-display');
-        const versionDisplay = document.getElementById('version-display');
-        const tableBody = document.getElementById('vault-table-body');
-
-        function printLog(text, isError = false) {
-            const p = document.createElement('p');
-            p.className = isError ? 'text-red-500 mt-1' : 'text-green-400 mt-1';
-            const timestamp = new Date().toLocaleTimeString();
-            p.innerHTML = `[${timestamp}] > ${text}`;
-            log.appendChild(p);
-            log.scrollTop = log.scrollHeight;
+        function showView(viewName) {
+            Object.keys(views).forEach(key => {
+                views[key].classList.add('hidden-view');
+            });
+            views[viewName].classList.remove('hidden-view');
+            
+            // Update Nav highlights
+            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+            const activeNav = document.getElementById(`nav-${viewName}`);
+            if (activeNav) activeNav.classList.add('active');
         }
 
-        function toggleTerminal() {
-            hackUI.style.display = hackUI.style.display === 'block' ? 'none' : 'block';
+        function updateUIBalance() {
+            const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(currentBalance);
+            document.getElementById('header-balance').innerText = formatted;
+            document.getElementById('stat-liquid-assets').innerText = formatted;
+        }
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-msg').innerText = msg;
+            document.getElementById('toast-icon').className = `w-2 h-2 rounded-full ${isError ? 'bg-red-500' : 'bg-green-500'}`;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => toast.classList.add('translate-y-20', 'opacity-0'), 3000);
+        }
+
+        function buyItem(id) {
+            const item = storeItems.find(i => i.id === id);
+            if (currentBalance >= item.price) {
+                currentBalance -= item.price;
+                updateUIBalance();
+                showToast(`Acquired: ${item.name}`);
+            } else {
+                showToast("Insufficient Liquidity in Hacked Account", true);
+            }
+        }
+
+        function renderStore() {
+            const container = document.getElementById('store-items');
+            container.innerHTML = storeItems.map(item => `
+                <div class="border border-gray-100 rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
+                    <div class="text-5xl mb-4">${item.img}</div>
+                    <h4 class="font-bold text-lg text-gray-800 mb-1">${item.name}</h4>
+                    <p class="text-[#c39d63] font-mono font-bold mb-6">${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(item.price)}</p>
+                    <button onclick="buyItem(${item.id})" class="mt-auto w-full py-2 bg-[#0a2540] text-white text-xs font-bold rounded hover:bg-black transition-colors">INITIATE PURCHASE</button>
+                </div>
+            `).join('');
+        }
+
+        // Initialize SQLite Database
+        async function initDatabase() {
+            const SQL = await initSqlJs({
+                locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/${file}`
+            });
+            db = new SQL.Database();
+            db.run("CREATE TABLE users (id INT, username TEXT, pin TEXT, role TEXT);");
+            db.run("CREATE TABLE vault_records (id TEXT, client TEXT, balance TEXT, secret TEXT);");
+            db.run("INSERT INTO users VALUES (1, 'admin_super', 'P@ssw0rd99!', 'SUPER_ADMIN');");
+            db.run("INSERT INTO users VALUES (2, 'audit_internal', '7721', 'AUDITOR');");
+            db.run("INSERT INTO vault_records VALUES ('TXN_4492', 'John Doe', '$1,204,500', 'FLAG{REAL_SQL_BYPASS_SUCCESS}');");
+            db.run("INSERT INTO vault_records VALUES ('TXN_8810', 'Swiss Trust', '$12,000,000', 'VAULT_KEY_001');");
+            db.run("INSERT INTO vault_records VALUES ('TXN_1102', 'Ghost Account', '$5,400,000', 'VAULT_KEY_002');");
+            db.run("INSERT INTO vault_records VALUES ('TXN_9921', 'C. Vacker', '$850,220', 'VAULT_KEY_003');");
+            renderStore();
         }
 
         function logout() {
-            dashboardView.classList.add('hidden-view');
-            loginView.classList.remove('hidden-view');
-            userDisplay.classList.add('hidden');
-            versionDisplay.classList.remove('hidden');
-            printLog("SESSION_TERMINATED. Returning to entry point.");
+            showView('login');
+            document.getElementById('main-nav').classList.add('hidden');
+            document.getElementById('user-display').classList.add('hidden');
+            document.getElementById('version-display').classList.remove('hidden');
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
         }
 
-        function populateDashboard(data) {
+        function populateDashboard(results) {
+            const tableBody = document.getElementById('vault-table-body');
             tableBody.innerHTML = '';
-            data.forEach(row => {
+            if (!results || results.length === 0) return;
+            const values = results[0].values;
+            values.forEach(row => {
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-gray-50 transition-colors";
-                tr.innerHTML = `
-                    <td class="p-3 font-mono text-gray-500">${row.id}</td>
-                    <td class="p-3 font-semibold">${row.client}</td>
-                    <td class="p-3 text-gray-800">${row.balance}</td>
-                    <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] bg-green-100 text-green-700 font-bold uppercase">Verified</span></td>
-                `;
+                tr.innerHTML = row.map(val => `<td class="p-3 font-mono text-gray-700">${val}</td>`).join('');
                 tableBody.appendChild(tr);
             });
         }
 
-        document.getElementById('close-hack').onclick = () => hackUI.style.display = 'none';
-
-        loginBtn.onclick = () => {
+        document.getElementById('login-btn').onclick = async () => {
             const u = document.getElementById('username').value;
             const p = document.getElementById('password').value;
+            const errorMsg = document.getElementById('error-msg');
+            const btnText = document.getElementById('btn-text');
+            const loginBtn = document.getElementById('login-btn');
 
-            printLog(`INJECTING INPUTS -> USER: [${u}] PIN: [${p}]`);
-            printLog(`GENERATED SQL: <span class="text-white">SELECT * FROM users WHERE acc_id='${u}' AND pin='${p}'</span>`);
+            errorMsg.classList.add('hidden');
+            btnText.innerHTML = '<span class="loader"></span> VERIFYING...';
+            loginBtn.disabled = true;
 
-            const isTautology = u.includes("' OR '1'='1") || p.includes("' OR '1'='1");
-            const isUnion = u.toLowerCase().includes("union select") || p.toLowerCase().includes("union select");
+            setTimeout(() => {
+                try {
+                    const query = `SELECT * FROM users WHERE username='${u}' AND pin='${p}'`;
+                    const res = db.exec(query);
 
-            if (isUnion) {
-                printLog("!!! UNION SELECT DETECTED - DATA OVERFLOW INITIATED !!!");
-                setTimeout(() => {
-                    printLog("PIVOTING TO 'Vault_Records' TABLE...");
-                    populateDashboard(db.Vault_Records);
-                    loginView.classList.add('hidden-view');
-                    dashboardView.classList.remove('hidden-view');
-                    userDisplay.classList.remove('hidden');
-                    versionDisplay.classList.add('hidden');
-                    printLog("DASHBOARD RENDERED WITH INJECTED DATASET.", false);
-                    alert("UNION ATTACK SUCCESS: Database records successfully joined to view.");
-                }, 800);
-            } else if (isTautology) {
-                printLog("AUTH_BYPASS: Logic evaluated to TRUE via tautology.");
-                setTimeout(() => {
-                    // Show restricted dashboard but maybe with less data or default view
-                    populateDashboard(db.Vault_Records.slice(0, 2)); 
-                    loginView.classList.add('hidden-view');
-                    dashboardView.classList.remove('hidden-view');
-                    userDisplay.classList.remove('hidden');
-                    versionDisplay.classList.add('hidden');
-                    alert("Login Bypass Successful. System Access Granted.");
-                }, 500);
-            } else {
-                printLog("BANK_SECURITY: Query returned 0 results. Access Denied.", true);
-                alert("Security Error: Invalid credentials.");
-            }
+                    if (res.length > 0 && res[0].values.length > 0) {
+                        const userData = res[0].values[0];
+                        document.getElementById('logged-in-user').innerText = userData[1];
+                        
+                        const dashboardData = db.exec("SELECT * FROM vault_records LIMIT 2");
+                        populateDashboard(dashboardData);
+
+                        document.getElementById('main-nav').classList.remove('hidden');
+                        document.getElementById('user-display').classList.remove('hidden');
+                        document.getElementById('version-display').classList.add('hidden');
+                        document.getElementById('current-time').innerText = new Date().toLocaleString();
+                        updateUIBalance();
+                        showView('dashboard');
+                    } else {
+                        errorMsg.classList.remove('hidden');
+                    }
+                } catch (e) {
+                    errorMsg.innerText = "Security Intercept: " + e.message;
+                    errorMsg.classList.remove('hidden');
+                } finally {
+                    btnText.innerText = 'AUTHORIZE ACCESS';
+                    loginBtn.disabled = false;
+                }
+            }, 600);
         };
 
-        // Welcome message
-        setTimeout(() => {
-            printLog("PROMPT: The bank uses a vulnerable SQL concatenation method.");
-            printLog("GOAL: Bypass the login using 1=1 OR use UNION SELECT to dump all vault keys.");
-        }, 1000);
+        initDatabase();
     </script>
 </body>
 </html>
