@@ -62,7 +62,7 @@
                     <input type="password" id="pass" class="input-std w-full p-3 rounded-xl text-slate-900" placeholder="••••••••">
                 </div>
                 
-                <button id="auth-btn" disabled class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold rounded-xl shadow-lg shadow-blue-100 transition-all flex justify-center items-center gap-2 mt-2">
+                <button id="auth-btn" class="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-semibold rounded-xl shadow-lg shadow-blue-100 transition-all flex justify-center items-center gap-2 mt-2">
                     <span id="btn-text">Authenticate</span>
                     <div id="loader" class="hidden w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                 </button>
@@ -145,36 +145,35 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "firebase/auth";
         import { getFirestore, collection, addDoc, getDocs, onSnapshot, query, serverTimestamp, doc, setDoc } from "firebase/firestore";
 
-        // Environment provided variables
-        const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        // Global environment constants
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nexus-cloud-storage';
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
         
-        // Manual Firebase Configuration provided by user
-        const manualFirebaseConfig = {
-            apiKey: "AIzaSyAro3b5SzGR-zu76TLYUz939ZEOz4t5jRw",
-            authDomain: "mydatabase-907cd.firebaseapp.com",
-            projectId: "mydatabase-907cd",
-            storageBucket: "mydatabase-907cd.firebasestorage.app",
-            messagingSenderId: "419784219413",
-            appId: "1:419784219413:web:4c5df53551f4962f83271c",
-            measurementId: "G-PCBQ2WPTDG"
-        };
+        // Configuration
+        const firebaseConfig = typeof __firebase_config !== 'undefined' 
+            ? JSON.parse(__firebase_config) 
+            : {
+                apiKey: "AIzaSyAro3b5SzGR-zu76TLYUz939ZEOz4t5jRw",
+                authDomain: "mydatabase-907cd.firebaseapp.com",
+                projectId: "mydatabase-907cd",
+                storageBucket: "mydatabase-907cd.firebasestorage.app",
+                messagingSenderId: "419784219413",
+                appId: "1:419784219413:web:4c5df53551f4962f83271c"
+            };
 
-        // Prefer environment config if available to prevent "configuration-not-found" errors in secure environments
-        const firebaseConfig = envFirebaseConfig || manualFirebaseConfig;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'nexus-cloud-storage';
-        
+        // Init Firebase
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db_fs = getFirestore(app);
 
+        // App State
         let db_sql = null; 
         let authMode = 'login';
-        let userAuthenticated = false;
         let currentUserData = null;
         let activeFileId = null;
         let fileUnsubscribe = null;
 
+        // Path Helpers (Strict Rules)
         const getPublicCollection = (name) => collection(db_fs, 'artifacts', appId, 'public', 'data', name);
         const getPrivateCollection = (uid, name) => collection(db_fs, 'artifacts', appId, 'users', uid, name);
 
@@ -185,8 +184,7 @@
 
             statusText.innerText = "Synchronizing Database...";
             statusDot.className = "w-2 h-2 bg-amber-400 rounded-full animate-pulse";
-            authBtn.disabled = true;
-
+            
             try {
                 if (!db_sql) {
                     const config = { locateFile: f => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/${f}` };
@@ -194,14 +192,17 @@
                     db_sql = new SQL.Database();
                 }
 
-                db_sql.run("DROP TABLE IF EXISTS users;");
-                db_sql.run("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password TEXT, role TEXT);");
+                db_sql.run("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT, role TEXT);");
                 
+                // Clear existing table for fresh sync
+                db_sql.run("DELETE FROM users;");
+
                 const snapshot = await getDocs(getPublicCollection('users'));
                 let users = snapshot.docs.map(doc => doc.data());
                 
+                // If no users exist, seed the DB
                 if (users.length === 0) {
-                    const initialAdmin = { username: 'nexus_admin', password: 'super_secret_99', role: 'ADMIN' };
+                    const initialAdmin = { username: 'admin', password: 'password', role: 'ADMIN' };
                     await addDoc(getPublicCollection('users'), initialAdmin);
                     users = [initialAdmin];
                 }
@@ -217,8 +218,9 @@
                 authBtn.disabled = false;
             } catch (err) {
                 console.error("Sync error:", err);
-                statusText.innerText = "Sync Error";
-                authBtn.disabled = false;
+                statusText.innerText = "Offline Mode Active";
+                statusDot.className = "w-2 h-2 bg-slate-400 rounded-full";
+                authBtn.disabled = false; // Enable anyway so user can try login
             }
         };
 
@@ -242,24 +244,23 @@
                     return;
                 }
 
-                const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                files.sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
-
-                files.forEach(file => {
+                snapshot.docs.forEach(docSnap => {
+                    const file = { id: docSnap.id, ...docSnap.data() };
                     const item = document.createElement('button');
                     item.className = `w-full text-left p-3 rounded-lg text-sm transition-all flex items-center gap-3 ${activeFileId === file.id ? 'bg-blue-50 text-blue-700 font-semibold border border-blue-100' : 'text-slate-600 hover:bg-slate-50'}`;
                     item.innerHTML = `
                         <i data-lucide="file-text" class="w-4 h-4 ${activeFileId === file.id ? 'text-blue-500' : 'text-slate-400'}"></i>
                         <div class="flex-1 truncate">
                             <div class="truncate font-medium">${file.title || 'Untitled'}</div>
-                            <div class="text-[10px] opacity-60">Private Document</div>
                         </div>
                     `;
                     item.onclick = () => openFile(file);
                     fileList.appendChild(item);
                 });
                 lucide.createIcons();
-            }, (error) => console.error("File sync error:", error));
+            }, (err) => {
+                console.warn("Firestore listener error", err);
+            });
         };
 
         const openFile = (file) => {
@@ -270,17 +271,6 @@
             document.getElementById('doc-content').value = file.content || '';
             document.getElementById('save-status').innerText = "Saved";
             document.getElementById('save-status').className = "text-[10px] uppercase font-bold text-green-500 mr-2";
-        };
-
-        const createNewFile = () => {
-            activeFileId = null;
-            document.getElementById('empty-state').classList.add('hidden-screen');
-            document.getElementById('editor-screen').classList.remove('hidden-screen');
-            document.getElementById('doc-title').value = '';
-            document.getElementById('doc-content').value = '';
-            document.getElementById('save-status').innerText = "New Draft";
-            document.getElementById('save-status').className = "text-[10px] uppercase font-bold text-amber-500 mr-2";
-            document.getElementById('doc-title').focus();
         };
 
         const saveCurrentFile = async () => {
@@ -313,7 +303,6 @@
             } catch (e) {
                 console.error(e);
                 status.innerText = "Error";
-                status.className = "text-[10px] uppercase font-bold text-red-500 mr-2";
             }
         };
 
@@ -321,43 +310,38 @@
             const u = document.getElementById('user').value;
             const p = document.getElementById('pass').value;
             const err = document.getElementById('error-msg');
-            const success = document.getElementById('success-msg');
             const loader = document.getElementById('loader');
-            const authBtn = document.getElementById('auth-btn');
+            const btnText = document.getElementById('btn-text');
 
             if (!u || !p) return;
-            authBtn.disabled = true;
             loader.classList.remove('hidden');
+            btnText.classList.add('hidden');
             err.style.opacity = '0';
 
             try {
                 if (authMode === 'login') {
-                    const sql = `SELECT * FROM users WHERE username = '${u}' AND password = '${p}'`;
-                    const result = db_sql.exec(sql);
-
+                    // Check local SQL DB
+                    if (!db_sql) throw new Error("Database not ready.");
+                    
+                    const result = db_sql.exec(`SELECT * FROM users WHERE username = '${u}' AND password = '${p}'`);
                     if (result.length > 0 && result[0].values.length > 0) {
                         enterSystem({ username: result[0].values[0][1] });
                     } else {
                         throw new Error("Invalid credentials.");
                     }
                 } else {
-                    await addDoc(getPublicCollection('users'), { 
-                        username: u, 
-                        password: p, 
-                        role: 'USER',
-                        createdAt: serverTimestamp() 
-                    });
+                    await addDoc(getPublicCollection('users'), { username: u, password: p, role: 'USER' });
                     await initSQL();
-                    success.innerText = "Account Saved Successfully.";
-                    success.style.opacity = '1';
-                    setTimeout(toggleMode, 1000);
+                    toggleMode();
+                    document.getElementById('success-msg').innerText = "Account Registered!";
+                    document.getElementById('success-msg').style.opacity = '1';
                 }
             } catch (e) {
                 err.innerText = e.message;
                 err.style.opacity = '1';
             } finally {
                 loader.classList.add('hidden');
-                if (authMode === 'login') authBtn.disabled = false;
+                btnText.classList.remove('hidden');
             }
         };
 
@@ -365,7 +349,7 @@
             authMode = authMode === 'login' ? 'register' : 'login';
             document.getElementById('auth-header').innerText = authMode === 'login' ? "Nexus Secure Access" : "Register Account";
             document.getElementById('btn-text').innerText = authMode === 'login' ? "Authenticate" : "Sign Up";
-            document.getElementById('toggle-auth-mode').innerText = authMode === 'login' ? "Need an account? Register Now" : "Already registered? Sign In";
+            document.getElementById('toggle-auth-mode').innerText = authMode === 'login' ? "Need an account? Register Now" : "Back to login";
         };
 
         const enterSystem = (user) => {
@@ -377,13 +361,6 @@
             lucide.createIcons();
         };
 
-        onAuthStateChanged(auth, async (user) => {
-            if (user && !userAuthenticated) {
-                userAuthenticated = true;
-                await initSQL();
-            }
-        });
-
         const startAuth = async () => {
             try {
                 if (initialAuthToken) {
@@ -391,27 +368,45 @@
                 } else {
                     await signInAnonymously(auth);
                 }
-            } catch (error) {
-                console.error("Auth initialization failed:", error);
-                // Fallback attempt with manual config if environment config fails
-                if (envFirebaseConfig) {
-                    console.log("Retrying with manual config...");
-                    const manualApp = initializeApp(manualFirebaseConfig, "fallback");
-                    const manualAuth = getAuth(manualApp);
-                    await signInAnonymously(manualAuth);
-                }
+            } catch (e) {
+                console.error("Auth initialization failed", e);
+                // Even if auth fails, let user try to interact with the UI
+                document.getElementById('status-text').innerText = "Auth Offline";
+                document.getElementById('auth-btn').disabled = false;
             }
         };
 
-        document.getElementById('auth-btn').addEventListener('click', handleAuth);
-        document.getElementById('toggle-auth-mode').addEventListener('click', toggleMode);
-        document.getElementById('logout-btn').addEventListener('click', () => location.reload());
-        document.getElementById('new-file-btn').addEventListener('click', createNewFile);
-        document.getElementById('save-file-btn').addEventListener('click', saveCurrentFile);
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                initSQL();
+            }
+        });
+
+        document.getElementById('auth-btn').onclick = handleAuth;
+        document.getElementById('toggle-auth-mode').onclick = toggleMode;
+        document.getElementById('save-file-btn').onclick = saveCurrentFile;
+        document.getElementById('new-file-btn').onclick = () => {
+            activeFileId = null;
+            document.getElementById('empty-state').classList.add('hidden-screen');
+            document.getElementById('editor-screen').classList.remove('hidden-screen');
+            document.getElementById('doc-title').value = '';
+            document.getElementById('doc-content').value = '';
+            document.getElementById('save-status').innerText = "Draft";
+        };
+        document.getElementById('logout-btn').onclick = () => location.reload();
 
         window.onload = () => {
             lucide.createIcons();
             startAuth();
+            
+            // Safety: If after 5 seconds it's still disabled, force enable
+            setTimeout(() => {
+                const btn = document.getElementById('auth-btn');
+                if (btn.disabled) {
+                    btn.disabled = false;
+                    document.getElementById('status-text').innerText = "Connection Slow - Manual Entry Active";
+                }
+            }, 5000);
         };
     </script>
 </body>
