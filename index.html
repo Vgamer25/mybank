@@ -101,10 +101,10 @@
         <div id="user-display" class="hidden text-sm flex items-center gap-6">
             <div class="text-right">
                 <span class="text-gray-400 block text-[10px] font-bold uppercase">Available Funds</span>
-                <span id="header-balance" class="text-[#c39d63] font-mono font-bold">$42,901,440.00</span>
+                <span id="header-balance" class="text-[#c39d63] font-mono font-bold">$0.00</span>
             </div>
             <div class="h-8 w-px bg-white/10"></div>
-            <span class="text-gray-400">User: <strong id="logged-in-user" class="text-white">SYSTEM_ADMIN</strong></span>
+            <span class="text-gray-400">User: <strong id="logged-in-user" class="text-white">---</strong></span>
             <button onclick="logout()" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded transition-colors">LOGOUT</button>
         </div>
         <div id="version-display" class="text-xs uppercase tracking-widest text-gray-400 font-bold">
@@ -160,7 +160,7 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div class="stat-card p-4 rounded shadow-sm">
                     <span class="text-xs text-gray-400 font-bold uppercase">Liquid Assets</span>
-                    <p id="stat-liquid-assets" class="text-2xl font-bold text-gray-800">$42,901,440.00</p>
+                    <p id="stat-liquid-assets" class="text-2xl font-bold text-gray-800">$0.00</p>
                 </div>
                 <div class="stat-card p-4 rounded shadow-sm">
                     <span class="text-xs text-gray-400 font-bold uppercase">Active Vaults</span>
@@ -220,7 +220,8 @@
 
     <script>
         let db;
-        let currentBalance = 42901440.00;
+        let currentUser = null;
+        let userBalances = {}; // Format: { "username": amount }
         
         const views = {
             login: document.getElementById('login-view'),
@@ -237,20 +238,62 @@
             { id: 6, name: "Luxury Watch Collection", price: 2500000, img: "⌚" }
         ];
 
+        /**
+         * Persist balances to money.json
+         */
+        async function saveBalance() {
+            try {
+                await fetch('money.json', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(userBalances)
+                });
+            } catch (err) {
+                console.warn("Storage unreachable, maintaining state in-memory.");
+            }
+        }
+
+        /**
+         * Load balances from money.json and ensure all users exist
+         */
+        async function loadBalances() {
+            try {
+                const response = await fetch('money.json');
+                if (response.ok) {
+                    const data = await response.json();
+                    userBalances = data || {};
+                }
+            } catch (err) {
+                console.log("No existing money.json found. Creating internal registry.");
+            }
+
+            // Ensure all users from our simulated DB are in the JSON storage
+            const users = ['admin_super', 'audit_internal', 'SYSTEM_ADMIN'];
+            users.forEach(user => {
+                if (!(user in userBalances)) {
+                    userBalances[user] = 42901440.00; // Default starting balance
+                }
+            });
+            
+            await saveBalance(); // Update JSON with the full user list
+            updateUIBalance();
+        }
+
         function showView(viewName) {
             Object.keys(views).forEach(key => {
                 views[key].classList.add('hidden-view');
             });
             views[viewName].classList.remove('hidden-view');
             
-            // Update Nav highlights
             document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
             const activeNav = document.getElementById(`nav-${viewName}`);
             if (activeNav) activeNav.classList.add('active');
         }
 
         function updateUIBalance() {
-            const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(currentBalance);
+            if (!currentUser) return;
+            const balance = userBalances[currentUser] || 0;
+            const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(balance);
             document.getElementById('header-balance').innerText = formatted;
             document.getElementById('stat-liquid-assets').innerText = formatted;
         }
@@ -265,9 +308,10 @@
 
         function buyItem(id) {
             const item = storeItems.find(i => i.id === id);
-            if (currentBalance >= item.price) {
-                currentBalance -= item.price;
+            if (userBalances[currentUser] >= item.price) {
+                userBalances[currentUser] -= item.price;
                 updateUIBalance();
+                saveBalance();
                 showToast(`Acquired: ${item.name}`);
             } else {
                 showToast("Insufficient Liquidity in Hacked Account", true);
@@ -286,7 +330,6 @@
             `).join('');
         }
 
-        // Initialize SQLite Database
         async function initDatabase() {
             const SQL = await initSqlJs({
                 locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.6.2/${file}`
@@ -301,9 +344,11 @@
             db.run("INSERT INTO vault_records VALUES ('TXN_1102', 'Ghost Account', '$5,400,000', 'VAULT_KEY_002');");
             db.run("INSERT INTO vault_records VALUES ('TXN_9921', 'C. Vacker', '$850,220', 'VAULT_KEY_003');");
             renderStore();
+            await loadBalances();
         }
 
         function logout() {
+            currentUser = null;
             showView('login');
             document.getElementById('main-nav').classList.add('hidden');
             document.getElementById('user-display').classList.add('hidden');
@@ -343,7 +388,15 @@
 
                     if (res.length > 0 && res[0].values.length > 0) {
                         const userData = res[0].values[0];
-                        document.getElementById('logged-in-user').innerText = userData[1];
+                        currentUser = userData[1]; // Set current user session
+                        
+                        // Handle cases where a SQL injection user isn't in our registry yet
+                        if (!(currentUser in userBalances)) {
+                            userBalances[currentUser] = 42901440.00;
+                            saveBalance();
+                        }
+
+                        document.getElementById('logged-in-user').innerText = currentUser;
                         
                         const dashboardData = db.exec("SELECT * FROM vault_records LIMIT 2");
                         populateDashboard(dashboardData);
